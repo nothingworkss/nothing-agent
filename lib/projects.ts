@@ -1,5 +1,6 @@
 export type ProjectStatus = "stopped" | "running" | "error";
 export type ProjectCategory = "diary" | "blog" | "automation" | "curation";
+export type ProjectLaunchMode = "local" | "remote" | "unconfigured";
 
 export interface Project {
   id: string;
@@ -16,9 +17,74 @@ export interface Project {
   serverCommand: string;
   port: number;
   serverPath?: string;
+  deploymentEnv: string;
+  deployedUrl?: string;
+  launchMode: ProjectLaunchMode;
   featured?: boolean;
   priority: number;
   keywords: string[];
+}
+
+type ProjectDefinition = Omit<
+  Project,
+  "deploymentEnv" | "deployedUrl" | "launchMode"
+>;
+
+const isRemoteRuntime =
+  Boolean(process.env.RAILWAY_ENVIRONMENT) ||
+  process.env.NEXT_PUBLIC_AGENT_HUB_REMOTE_MODE === "1";
+
+function cleanUrl(value?: string) {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  return trimmed.replace(/\/+$/, "");
+}
+
+const deploymentConfigs: Record<string, { env: string; url?: string }> = {
+  diary: {
+    env: "NEXT_PUBLIC_AGENT_HUB_DIARY_URL",
+    url: cleanUrl(process.env.NEXT_PUBLIC_AGENT_HUB_DIARY_URL),
+  },
+  "nothing-matters": {
+    env: "NEXT_PUBLIC_AGENT_HUB_NOTHING_MATTERS_URL",
+    url: cleanUrl(process.env.NEXT_PUBLIC_AGENT_HUB_NOTHING_MATTERS_URL),
+  },
+  "nothingmatters-blog-studio": {
+    env: "NEXT_PUBLIC_AGENT_HUB_NOTHINGMATTERS_BLOG_STUDIO_URL",
+    url: cleanUrl(process.env.NEXT_PUBLIC_AGENT_HUB_NOTHINGMATTERS_BLOG_STUDIO_URL),
+  },
+  "blog-cookie": {
+    env: "NEXT_PUBLIC_AGENT_HUB_BLOG_COOKIE_URL",
+    url: cleanUrl(process.env.NEXT_PUBLIC_AGENT_HUB_BLOG_COOKIE_URL),
+  },
+  "blog-general": {
+    env: "NEXT_PUBLIC_AGENT_HUB_BLOG_GENERAL_URL",
+    url: cleanUrl(process.env.NEXT_PUBLIC_AGENT_HUB_BLOG_GENERAL_URL),
+  },
+  "blog-bag": {
+    env: "NEXT_PUBLIC_AGENT_HUB_BLOG_BAG_URL",
+    url: cleanUrl(process.env.NEXT_PUBLIC_AGENT_HUB_BLOG_BAG_URL),
+  },
+  curation: {
+    env: "NEXT_PUBLIC_AGENT_HUB_CURATION_URL",
+    url: cleanUrl(process.env.NEXT_PUBLIC_AGENT_HUB_CURATION_URL),
+  },
+  "cafe-writer": {
+    env: "NEXT_PUBLIC_AGENT_HUB_CAFE_WRITER_URL",
+    url: cleanUrl(process.env.NEXT_PUBLIC_AGENT_HUB_CAFE_WRITER_URL),
+  },
+};
+
+function withDeployment(project: ProjectDefinition): Project {
+  const deployment = deploymentConfigs[project.id];
+  const deployedUrl = deployment?.url;
+
+  return {
+    ...project,
+    deploymentEnv: deployment?.env ?? `NEXT_PUBLIC_AGENT_HUB_${project.id.toUpperCase()}_URL`,
+    deployedUrl,
+    launchMode: deployedUrl ? "remote" : isRemoteRuntime ? "unconfigured" : "local",
+  };
 }
 
 const projectDefinitions = [
@@ -179,11 +245,11 @@ const projectDefinitions = [
     priority: 4.5,
     keywords: ["cafe", "lazy club", "copy", "writer", "카페", "글쓰기"],
   },
-  ] satisfies Project[];
+  ] satisfies ProjectDefinition[];
 
-export const projects: Project[] = [...projectDefinitions].sort(
-  (left, right) => left.priority - right.priority
-);
+export const projects: Project[] = projectDefinitions
+  .map(withDeployment)
+  .sort((left, right) => left.priority - right.priority);
 
 export const categories = [
   {
@@ -222,12 +288,57 @@ export function getCategoryLabel(category: ProjectCategory | "all") {
   return categories.find((item) => item.id === category)?.label ?? "전체";
 }
 
-export function getProjectServerUrl(project: Pick<Project, "port" | "serverPath">) {
+function withServerPath(url: string, serverPath?: string) {
+  if (!serverPath) return url;
+
+  try {
+    const parsed = new URL(url);
+    const hasCustomPath = parsed.pathname && parsed.pathname !== "/";
+    if (hasCustomPath) return url;
+
+    parsed.pathname = serverPath;
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return url;
+  }
+}
+
+export function getProjectServerUrl(
+  project: Pick<Project, "port" | "serverPath" | "deployedUrl">
+) {
+  if (project.deployedUrl) {
+    return withServerPath(project.deployedUrl, project.serverPath);
+  }
+
   return `http://localhost:${project.port}${project.serverPath ?? ""}`;
 }
 
 export function getProjectServerLabel(
-  project: Pick<Project, "port" | "serverPath">
+  project: Pick<
+    Project,
+    "port" | "serverPath" | "deployedUrl" | "deploymentEnv" | "launchMode"
+  >
 ) {
+  if (project.launchMode === "unconfigured") {
+    return `${project.deploymentEnv} 필요`;
+  }
+
+  if (project.deployedUrl) {
+    try {
+      const parsed = new URL(getProjectServerUrl(project));
+      return `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
+    } catch {
+      return project.deployedUrl;
+    }
+  }
+
   return `localhost:${project.port}${project.serverPath ?? ""}`;
+}
+
+export function canOpenProject(project: Pick<Project, "launchMode">) {
+  return project.launchMode !== "unconfigured";
+}
+
+export function canManageProjectLocally(project: Pick<Project, "launchMode">) {
+  return project.launchMode === "local";
 }

@@ -22,7 +22,11 @@ import { useRouter } from "next/navigation";
 
 import { useProjectRuntime } from "@/components/runtime/project-runtime-provider";
 import { ProjectStatusBadge } from "@/components/dashboard/project-status-badge";
-import { getProjectServerLabel } from "@/lib/projects";
+import {
+  canManageProjectLocally,
+  canOpenProject,
+  getProjectServerLabel,
+} from "@/lib/projects";
 import { cn } from "@/lib/utils";
 
 type CommandItem = {
@@ -77,17 +81,29 @@ export function CommandPalette() {
         meta: "Peek",
       });
 
-      if (project.runtime.status === "running") {
+      const localControls = canManageProjectLocally(project);
+      const canOpenLive =
+        canOpenProject(project) &&
+        (project.launchMode === "remote" || project.runtime.status === "running");
+
+      if (canOpenLive) {
         items.push({
           id: `${project.id}-open-live`,
           group: "Live",
           label: `${project.name} 실행 화면 열기`,
           description: `${getProjectServerLabel(project)}를 새 탭에서 엽니다.`,
-          keywords: `${project.name} open live localhost ${project.port}`,
+          keywords: `${project.name} open live localhost deployed ${project.port}`,
           icon: <ArrowUpRight className="size-4" />,
           action: () => openProjectWindow(project),
           meta: getProjectServerLabel(project),
         });
+      }
+
+      if (!localControls) {
+        continue;
+      }
+
+      if (project.runtime.status === "running") {
         items.push({
           id: `${project.id}-stop`,
           group: "Controls",

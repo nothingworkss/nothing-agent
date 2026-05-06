@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { getProjectServerUrl, projects } from "@/lib/projects";
+import { getProjectServerUrl, projects, type Project } from "@/lib/projects";
 import {
   createEmptyRuntimeState,
   type ProjectRuntimeSnapshot,
@@ -28,9 +28,14 @@ interface ProjectRuntimeContextValue {
   setPeekProjectId: (projectId: string | null) => void;
   runAction: (projectId: string, action: RuntimeAction) => Promise<boolean>;
   refresh: () => Promise<void>;
-  openProjectWindow: (project: { port: number; serverPath?: string }) => void;
-  copyProjectUrl: (project: { port: number; serverPath?: string }) => Promise<boolean>;
+  openProjectWindow: (project: ProjectUrlTarget) => void;
+  copyProjectUrl: (project: ProjectUrlTarget) => Promise<boolean>;
 }
+
+type ProjectUrlTarget = Pick<
+  Project,
+  "port" | "serverPath" | "deployedUrl" | "deploymentEnv" | "launchMode"
+>;
 
 const emptySnapshot: ProjectRuntimeSnapshot = {
   generatedAt: new Date().toISOString(),

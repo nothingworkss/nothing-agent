@@ -1,6 +1,11 @@
 import { execSync, spawn, type ChildProcess } from "child_process";
 
-import { projects } from "@/lib/projects";
+import {
+  canManageProjectLocally,
+  getProjectServerUrl,
+  projects,
+  type Project,
+} from "@/lib/projects";
 import {
   createEmptyRuntimeState,
   summarizeSnapshot,
@@ -26,10 +31,33 @@ class ProjectRuntimeManager {
 
   constructor() {
     for (const project of projects) {
-      this.states.set(project.id, createEmptyRuntimeState(project.id, project.port));
+      this.states.set(project.id, this.createInitialState(project));
     }
 
     this.ensureHealthTicker();
+  }
+
+  private createInitialState(project: Project): ProjectRuntimeState {
+    const state = createEmptyRuntimeState(project.id, project.port);
+
+    if (project.launchMode === "remote") {
+      return {
+        ...state,
+        status: "running",
+        health: "degraded",
+        logs: [`배포 URL로 연결합니다: ${getProjectServerUrl(project)}`],
+      };
+    }
+
+    if (project.launchMode === "unconfigured") {
+      return {
+        ...state,
+        status: "error",
+        error: `Railway에서 사용하려면 ${project.deploymentEnv} 변수에 배포 URL을 넣어주세요.`,
+      };
+    }
+
+    return state;
   }
 
   subscribe(listener: RuntimeListener) {
@@ -199,7 +227,41 @@ class ProjectRuntimeManager {
   }
 
   private async refreshProjectHealth(projectId: string) {
-    const { project } = this.getState(projectId);
+    const { project, state } = this.getState(projectId);
+
+    if (project.launchMode === "remote") {
+      const url = getProjectServerUrl(project);
+      const reachable = await this.pingUrl(url);
+      const now = new Date().toISOString();
+
+      this.setState(projectId, {
+        status: "running",
+        healthy: reachable,
+        health: reachable ? "healthy" : "degraded",
+        pid: undefined,
+        lastHealthCheckAt: now,
+        lastReadyAt: reachable ? state.lastReadyAt ?? now : state.lastReadyAt,
+        error: reachable ? null : `${url} 응답 확인이 필요해요.`,
+        logs:
+          state.logs.length > 0
+            ? state.logs
+            : [`배포 URL로 연결합니다: ${url}`],
+      });
+      return;
+    }
+
+    if (project.launchMode === "unconfigured") {
+      this.setState(projectId, {
+        status: "error",
+        healthy: false,
+        health: "offline",
+        pid: undefined,
+        lastHealthCheckAt: new Date().toISOString(),
+        error: `Railway에서 사용하려면 ${project.deploymentEnv} 변수에 배포 URL을 넣어주세요.`,
+      });
+      return;
+    }
+
     const reachable = await this.pingPort(project.port);
     const child = this.processes.get(projectId);
 
@@ -240,6 +302,40 @@ class ProjectRuntimeManager {
     await Promise.all(projects.map((project) => this.refreshProjectHealth(project.id)));
   }
 
+  private async pingUrl(url: string) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2200);
+      const response = await fetch(url, {
+        method: "HEAD",
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (response.status === 405) {
+        return this.pingUrlWithGet(url);
+      }
+
+      return response.ok || response.status < 500;
+    } catch {
+      return this.pingUrlWithGet(url);
+    }
+  }
+
+  private async pingUrlWithGet(url: string) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2200);
+      const response = await fetch(url, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      return response.ok || response.status < 500;
+    } catch {
+      return false;
+    }
+  }
+
   private async pingPort(port: number) {
     try {
       const controller = new AbortController();
@@ -266,6 +362,19 @@ class ProjectRuntimeManager {
 
   async startProject(projectId: string) {
     const { project, state } = this.getState(projectId);
+
+    if (!canManageProjectLocally(project)) {
+      await this.refreshProjectHealth(projectId);
+
+      return {
+        ok: project.launchMode === "remote",
+        message:
+          project.launchMode === "remote"
+            ? "배포 URL로 연결했어요."
+            : `${project.deploymentEnv} 변수에 배포 URL이 필요해요.`,
+        snapshot: this.getSnapshot(),
+      };
+    }
 
     if (this.processes.has(projectId) && state.status !== "error") {
       await this.refreshProjectHealth(projectId);
@@ -417,6 +526,16 @@ class ProjectRuntimeManager {
 
   async stopProject(projectId: string, options?: { silent?: boolean }) {
     const { project } = this.getState(projectId);
+
+    if (!canManageProjectLocally(project)) {
+      await this.refreshProjectHealth(projectId);
+
+      return {
+        ok: project.launchMode === "remote",
+        snapshot: this.getSnapshot(),
+      };
+    }
+
     const child = this.processes.get(projectId);
 
     if (child) {

@@ -27,6 +27,10 @@ export function getStatusTone(
 export function getRuntimeLabel(project: ProjectWithRuntime) {
   const { runtime } = project;
 
+  if (project.launchMode === "unconfigured") return "URL 필요";
+  if (project.launchMode === "remote" && runtime.status === "running") {
+    return runtime.healthy ? "배포 연결" : "연결 확인";
+  }
   if (runtime.status === "error") return "확인 필요";
   if (runtime.status === "starting") return "시작 중";
   if (runtime.status === "running" && !runtime.healthy) return "불안정";
@@ -38,6 +42,12 @@ export function getRuntimeDescription(project: ProjectWithRuntime) {
   const { runtime } = project;
 
   if (runtime.error) return runtime.error;
+  if (project.launchMode === "remote" && runtime.status === "running") {
+    return `${project.shortName} 배포 화면을 바로 열 수 있어요.`;
+  }
+  if (project.launchMode === "unconfigured") {
+    return `${project.deploymentEnv}에 배포 URL을 넣으면 연결됩니다.`;
+  }
   if (runtime.status === "running" && runtime.healthy) {
     return `${project.shortName} 작업면을 바로 열 수 있어요.`;
   }
@@ -52,6 +62,22 @@ export function getRuntimeDescription(project: ProjectWithRuntime) {
 
 export function getProjectNextAction(project: ProjectWithRuntime): ProjectNextAction {
   const { runtime } = project;
+
+  if (project.launchMode === "remote") {
+    return {
+      action: "open",
+      label: "열기",
+      description: "배포된 작업면으로 이동합니다.",
+    };
+  }
+
+  if (project.launchMode === "unconfigured") {
+    return {
+      action: "inspect",
+      label: "URL 설정",
+      description: "Railway 변수에 배포 URL을 넣어야 합니다.",
+    };
+  }
 
   if (runtime.status === "error") {
     return {

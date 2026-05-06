@@ -14,6 +14,7 @@ import { useProjectRuntime } from "@/components/runtime/project-runtime-provider
 import { useToast } from "@/components/shared/toast";
 import { Button } from "@/components/ui/button";
 import type { ProjectWithRuntime } from "@/lib/project-runtime";
+import { canManageProjectLocally, canOpenProject } from "@/lib/projects";
 import { cn } from "@/lib/utils";
 
 interface ProjectActionsProps {
@@ -37,6 +38,8 @@ export function ProjectActions({
   const busyAction = busyActions[project.id];
   const isBusy = Boolean(busyAction);
   const isRunning = project.runtime.status === "running";
+  const localControls = canManageProjectLocally(project);
+  const canOpen = canOpenProject(project);
   const baseSize = mode === "page" ? "lg" : "sm";
   const compact = mode === "compact";
 
@@ -69,7 +72,20 @@ export function ProjectActions({
           : "flex flex-wrap items-center gap-2"
       }
     >
-      {isRunning ? (
+      {!localControls ? (
+        <>
+          <Button
+            size={baseSize}
+            variant="outline"
+            disabled={!canOpen}
+            onClick={() => openProjectWindow(project)}
+            className="rounded-full bg-white/65"
+          >
+            <ExternalLink />
+            {canOpen ? "열기" : "URL 필요"}
+          </Button>
+        </>
+      ) : isRunning ? (
         <>
           <Button
             size={baseSize}
@@ -117,7 +133,7 @@ export function ProjectActions({
         </Button>
       )}
 
-      {mode !== "card" && mode !== "compact" && (
+      {mode !== "card" && mode !== "compact" && canOpen && (
         <Button
           size={baseSize}
           variant="outline"

@@ -60,6 +60,12 @@ export function ProjectPage({ project }: ProjectPageProps) {
   }
 
   const nextAction = getProjectNextAction(runtimeProject);
+  const previewHint =
+    runtimeProject.launchMode === "unconfigured"
+      ? `${runtimeProject.deploymentEnv}에 배포 URL을 넣으면 이 프로젝트를 웹에서 열 수 있어요.`
+      : runtimeProject.launchMode === "remote"
+        ? "배포된 작업면을 새 탭으로 열거나 여기에서 미리볼 수 있어요."
+        : "시작 버튼을 누르면 이 영역이 로컬 프로젝트 미리보기로 전환됩니다.";
   const mobileTabs: { id: MobileTab; label: string; icon: typeof Monitor }[] = [
     { id: "preview", label: "작업면", icon: Monitor },
     { id: "runtime", label: "상태", icon: Activity },
@@ -179,7 +185,7 @@ export function ProjectPage({ project }: ProjectPageProps) {
                       작업면이 대기 중입니다.
                     </p>
                     <p className="mt-2 max-w-md text-sm leading-6 text-white/58">
-                      시작 버튼을 누르면 이 영역이 로컬 프로젝트 미리보기로 전환됩니다.
+                      {previewHint}
                     </p>
                   </div>
                 </div>
